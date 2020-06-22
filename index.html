@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+  <style>
+      .canvasframe {
+        float: left;
+        width: 980px;
+      }
+      .control {
+        float: left;
+      }
+      .row:after {
+        content: "";
+        display: table;
+        clear: both;
+      }
+  </style>
+  </head>
+<body>
+<div class = "row">
+    <div class = "canvasframe">
+    <canvas id="canvas" width="960" height="600" style="border: 1pt solid black;"></canvas>
+    </div>
+    <div class="control">
+    <label>Controls:</label><br>
+    <p>Accelerate: Up Arrow<br> Decelerate: Down Arrow<br>  Brake: Space<br> Pitch: W / S <br>Yaw: A / D <br>Roll: Q / E</p>
+        <form>
+        <label>Speed:</label><br>
+        <textarea id="speed" rows="1" cols="5" disabled></textarea><br>
+        <label>Position:</label><br>
+        <textarea id="position" rows="3" cols="5" disabled></textarea><br>
+        </form>
+    </div>
+</div>
+<p>Previous explorers have told me that there are nine islands in this area. Can you chart all of them? Also, I wonder what is causing those waves? There is no wind in these lands.</p>
+<script>
+
+function toRect(theta, v1, v2, v3) {
+    return [Math.cos(theta / 2), v1 * Math.sin(theta / 2), v2 * Math.sin(theta / 2), v3 * Math.sin(theta / 2)];
+}
+
+class Quaternion {
+    constructor(re, i, j, k) {
+        this.re = re;
+        this.i = i;
+        this.j = j;
+        this.k = k;
+    }
+
+    add(other) {
+        return new Quaternion(this.re + other.re, this.i + other.i, this.j + other.j, this.k + other.k);
+    }
+
+    sub(other) {
+        return new Quaternion(this.re - other.re, this.i - other.i, this.j - other.j, this.k - other.k);
+    }
+
+    mult(other) {
+        const re = this.re * other.re - this.i * other.i - this.j * other.j - this.k * other.k;
+        const i = this.re * other.i + this.i * other.re + this.j * other.k - this.k * other.j;
+        const j = this.re * other.j - this.i * other.k + this.j * other.re + this.k * other.i;
+        const k = this.re * other.k + this.i * other.j - this.j * other.i + this.k * other.re;
+        return new Quaternion(re, i, j, k);
+    }
+
+    eq(other) {
+        return this.re === other.re && this.i === other.i && this.j === other.j && this.k === other.k;
+    }
+
+    toString() {
+        return `${this.re} + ${this.i}i + ${this.j}j + ${this.k}k`;
+    }
+
+    conj() {
+        return new Quaternion(this.re, -this.i, -this.j, -this.k);
+    }
+
+    im() {
+        return new Quaternion(0, this.i, this.j, this.k);
+    }
+
+    abs() {
+        return Math.sqrt(this.re ** 2 + this.i ** 2 + this.j ** 2 + this.k ** 2);
+    }
+}
+function rotate(point, p) {
+    return p.mult(point).mult(p.conj());
+}
+class Polygon {
+    constructor(vertices, color) {
+        this.vertices = vertices
+        this.color = color
+    }
+
+    midpoint() {
+        let x = 0;
+        let y = 0;
+        let z = 0;
+        for (const point of this.vertices) {
+            x += point[0];
+            y += point[1];
+            z += point[2];
+        }
+        return [x / this.vertices.length, y / this.vertices.length, z / this.vertices.length];   
+    }
+}
+
+
+class Camera {
+    constructor(position = new Quaternion(0,0,0,0), orientation = new Quaternion(1,0,0,0)) {
+        this.position = position;
+        this.orientation = orientation;
+        this.speed = 0;
+    }
+
+    distance(point) {
+        point = new Quaternion(0, point[0], point[1], point[2]);
+        return point.sub(this.position).abs();
+    }
+
+    project(point) {
+        const p = new Quaternion(0, point[0], point[1], point[2]);
+        const prel = this.orientation.conj().mult(p.sub(this.position)).mult(this.orientation);
+        if (prel.i > 0) {
+            return [600 * prel.j / prel.i, 600 * prel.k / prel.i];
+        }
+        else
+        {
+            return [undefined, undefined];
+        }
+    }
+
+    translate(direction) {
+        this.position = this.position.add(this.orientation.mult(direction).mult(this.orientation.conj()))
+    }
+
+    rotate(rotation) {
+        this.orientation = this.orientation.mult(rotation)
+    }
+
+}
+function randomint(a,b) {
+    return a + Math.floor(Math.random() * (b - a));
+}
+Islands = []
+for (let n = 0; n < 8; n++) {
+    Islands.push([randomint(100,200),randomint(-20,20),randomint(-20,20)]);
+}
+function height1(x, y) {
+    const r = Math.sqrt((x - 10000) ** 2 + (y - 15000) ** 2)/500
+    const theta = Math.atan((y - 15000) / (x - 10000))
+    let h = -1000 * (Math.cos(5 * r + 2 * theta) * (1 - Math.exp(0-r ** 2)) + 1) / r ** 1.4
+    h += 300 * Math.exp(0 - (x/250)**2 - (y/250)**2)
+    for (const island of Islands) {
+        h += island[0] * Math.exp(0 - (x/200 - island[1])**2 - (y/200 - island[2])**2)
+    }
+    return h
+}
+
+
+camera = new Camera(new Quaternion(0,-100,0,20))
+console.log(camera.position.toString(),camera.orientation.toString())
+const canvas = document.getElementById("canvas")
+let ctx = canvas.getContext("2d");
+
+speedometer = document.getElementById("speed")
+gps = document.getElementById("position")
+
+const render_distance = 80
+
+function draw_view() {
+    for (let dist = render_distance; dist > 0; dist--) {
+        for (let i = 0; i < 8 * dist; i++) {
+            const x = 20 * (Math.round(camera.position.i / 20) + ([1,0,-1,0][i % 4] * Math.floor(i/4) + [-1,1,1,-1][i % 4] * dist));
+            const y = 20 * (Math.round(camera.position.j / 20) + ([0,-1,0,1][i % 4] * Math.floor(i/4) + [1,1,-1,-1][i % 4] * dist));
+            polygon = [[x, y, height1(x,y)],[x + 20, y, height1(x + 20,y)],[x + 20, y + 20, height1(x + 20, y + 20)],[x, y + 20, height1(x, y + 20)]];
+            ctx.beginPath();
+            shade = Math.floor(256 * dist / render_distance)
+            ctx.strokeStyle = `rgb(${shade}, ${shade}, ${shade})`;
+            const coord = camera.project(polygon[3]);
+            ctx.moveTo(canvas.width / 2 + coord[0], canvas.height / 2 - coord[1]);
+            for (const point of polygon) {
+                const coord = camera.project(point);
+                ctx.lineTo(canvas.width / 2 + coord[0], canvas.height / 2 - coord[1]);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+    }
+}
+
+accelerate()
+
+let active = false
+
+document.addEventListener('keydown', event => {
+    console.log('event')
+    //yaw left
+    if (event.keyCode === 68) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 0, 1)))
+    }
+    //yaw right
+    if (event.keyCode === 65) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 0, 1)))
+    }
+    //pitch down
+    if (event.keyCode === 87) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 1, 0)))
+    }
+    //pitch up
+    if (event.keyCode === 83) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 1, 0)))
+    }
+    //roll right
+    if (event.keyCode === 81) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 1, 0, 0)))
+    }
+    //roll left
+    if (event.keyCode === 69) {
+        event.preventDefault()
+        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 1, 0, 0)))
+    }
+    //accelerate
+    if (event.keyCode === 38) {
+        event.preventDefault()
+        camera.speed += 5
+        if (camera.speed > 50) {
+            camera.speed = 50
+        }
+        speedometer.value = camera.speed
+    }
+    //decelerate
+    if (event.keyCode === 40) {
+        event.preventDefault()
+        camera.speed -= 5
+        if (camera.speed < -50) {
+            camera.speed = -50
+        }
+        speedometer.value = camera.speed
+    }
+    //brake / restart
+    if (event.keyCode === 32) {
+        if (!(camera.speed === 0)) {
+            camera.speed = 0
+        }
+        else
+        {
+            camera.speed = 10
+        }
+        speedometer.value = camera.speed
+    }
+    accelerate()
+})
+
+function accelerate() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if (!(camera.speed === 0) && !active) {
+        active = true
+        camera.translate(new Quaternion(0, camera.speed, 0, 0))
+        gps.value = `x: ${Math.round(camera.position.i /20)} \ny: ${Math.round(camera.position.j / 20)} \nz: ${Math.round(camera.position.k / 20)}`
+        setTimeout(() => {active = false;}, 39)
+        setTimeout(accelerate, 40);
+    }
+    //floor collision
+    if (camera.position.k < 20 + height1(camera.position.i,camera.position.j)) {
+        camera.position.k = 20 + height1(camera.position.i,camera.position.j)
+    }
+    draw_view()
+}
+
+</script>
+</body>
