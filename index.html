@@ -235,17 +235,19 @@ generator.addEventListener("click", event => {
 })
 
 function height1(x, y) {
-    return 2000 * (0.9 * noise(x / 1000, y / 1000) + 0.1 * noise(x / 100, y / 100)) ** 4;
+    let h = 2000 * (0.9 * noise(x / 1000, y / 1000) + 0.1 * noise(x / 100, y / 100)) ** 4;
     //pyramid
     //if (1250 < x && x < 2250 && -500 < y && y < 500) {
     //    return 500 - 0.3 * (Math.abs(x - 1750 - y) + Math.abs(x - 1750 + y))
     //}
     
     //whirlpool
-    //const r = Math.sqrt((x - 10000) ** 2 + (y - 15000) ** 2)/500
-    //const theta = Math.atan((y - 15000) / (x - 10000))
-    //h += -1000 * (Math.cos(5 * r + 2 * theta) * (1 - Math.exp(0-r ** 2)) + 1) / r ** 1.4
-    //return h
+    if (seeder.value === 'whirlpool') {
+        const r = Math.sqrt((x - 10000) ** 2 + (y - 15000) ** 2)/500
+        const theta = Math.atan((y - 15000) / (x - 10000))
+        h = h * (1 - Math.exp(0 - (r / 20) ** 2)) - 1000 * (Math.cos(5 * r + 2 * theta) * (1 - Math.exp(0 - (r / 5) ** 2)) + 1) / r ** 1.4
+    }
+    return h
 }
 
 camera = new Camera(new Quaternion(0,-100,0,20))
