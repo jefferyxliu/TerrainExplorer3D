@@ -347,7 +347,7 @@ document.addEventListener('keydown', event => {
 canvas.addEventListener("click", event => {
     const i = Math.floor(event.offsetX / canvas.width * 3);
     const j = Math.floor(event.offsetY / canvas.height * 3);
-    const key = [[69,83,81],[68,32,65],[40,87,38]][j][i]
+    const key = [[69,83,81],[65,32,68],[40,87,38]][j][i]
     document.dispatchEvent(new KeyboardEvent('keydown', {"keyCode": key}))
 })
 
