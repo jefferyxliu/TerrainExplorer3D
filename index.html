@@ -19,7 +19,7 @@
 <body>
 <div class = "row">
     <div class = "canvasframe">
-    <canvas id="canvas" width="960" height="600" style="border: 1pt solid black;"></canvas>
+    <canvas id="canvas" width="960" height="600" style="border: 1pt solid black; background-color: skyblue;"></canvas>
     </div>
     <div class="control">
     <label>Controls:</label><br>
@@ -29,10 +29,11 @@
         <textarea id="speed" rows="1" cols="5" disabled></textarea><br>
         <label>Position:</label><br>
         <textarea id="position" rows="3" cols="5" disabled></textarea><br>
+        <label>Random Seed:</label><br>
+        <input type="text" id="seed"><button id = "randomizer">Randomize</button><button id = "generator">Generate!</button>
         </form>
     </div>
 </div>
-<p>Previous explorers have told me that there are nine islands in this area. Can you chart all of them? Also, I wonder what is causing those waves? There is no wind in these lands.</p>
 <script>
 
 function toRect(theta, v1, v2, v3) {
@@ -105,7 +106,6 @@ class Polygon {
     }
 }
 
-
 class Camera {
     constructor(position = new Quaternion(0,0,0,0), orientation = new Quaternion(1,0,0,0)) {
         this.position = position;
@@ -131,35 +131,124 @@ class Camera {
     }
 
     translate(direction) {
-        this.position = this.position.add(this.orientation.mult(direction).mult(this.orientation.conj()))
+        this.position = this.position.add(this.orientation.mult(direction).mult(this.orientation.conj()));
     }
 
     rotate(rotation) {
-        this.orientation = this.orientation.mult(rotation)
+        this.orientation = this.orientation.mult(rotation);
+    }
+}
+
+//random seed for Lehmer PRNG to generate pseudorandom gradients for Perlin Noise.
+function hashCode(s) {
+    let h;
+    for(let i = 0; i < s.length; i++)
+        h = Math.imul(31, h) + s.charCodeAt(i) | 0;
+    return h;
+}
+const seeder = document.getElementById("seed")
+
+function randomseed() {
+    const characters = '1234567890QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm'
+    let s = '';
+    for (let i = 0; i < 10; i++) {
+        s += characters.charAt(Math.floor(Math.random() * 62));
+    }
+    seeder.value = s
+}
+randomseed()
+
+//gradients with size 1 in a circle
+let Gradient = [];
+for (let n = 0; n < 256; n++) {
+    Gradient.push([Math.cos(n / 128 * Math.PI), Math.sin(n / 128 * Math.PI)]);
+}
+
+//a pseudo random permutation of 256 indices.
+let P;
+function randomPermutation() {
+    //the identity permutation
+    let perm = [];
+    for (let i = 0; i < 256; i++) {
+        perm[i] = i;
     }
 
+    let seed = Math.abs(hashCode(seeder.value));
+    //generate permutation Fisher-Yates shuffle
+    for (let i = 255; i > 0; i--) {
+        seed = (16807 * seed) % 2147483647;
+        let j = seed % (i + 1);
+        let holder = perm[j];
+        perm[j] = perm[i];
+        perm[i] = holder
+    }
+    P = perm
 }
-function randomint(a,b) {
-    return a + Math.floor(Math.random() * (b - a));
+randomPermutation()
+
+//cubic interpolation
+function lerp(v0, v1, t) {
+    const w = 3 * t ** 2 - 2 * t ** 3
+    return (1 - w) * v0 + w * v1;
 }
-Islands = []
-for (let n = 0; n < 8; n++) {
-    Islands.push([randomint(100,200),randomint(-20,20),randomint(-20,20)]);
+
+//dot product of lattice displacement (dx, dy) with pseudorandom gradient at lattice point (ix, iy).
+function dotGridGradient(ix, iy, x, y) {
+    const dx = x - Math.floor(ix);
+    const dy = y - Math.floor(iy);
+    const m = P[((Math.floor(ix) + 1) & 255)]
+    const n = P[(m + Math.floor(iy)) & 255];
+    return dx * Gradient[n][0] + dy * Gradient[n][1];
 }
+
+//Perlin noise
+function noise(x, y) {
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+
+    const sx = x - x0;
+    const sy = y - y0;
+
+    let n0;
+    let n1;
+    n0 = dotGridGradient(x0, y0, x, y);
+    n1 = dotGridGradient(x0 + 1, y0, x, y);
+    const ix0 = lerp(n0, n1, sx);
+
+    n0 = dotGridGradient(x0, y0 + 1, x, y);
+    n1 = dotGridGradient(x0 + 1, y0 + 1, x, y);
+    const ix1 = lerp(n0, n1, sx);
+    const value = lerp(ix0, ix1, sy);
+    return value;
+}
+const randomizer = document.getElementById("randomizer")
+randomizer.addEventListener("click", event => {
+    event.preventDefault();
+    randomseed()
+})
+
+const generator = document.getElementById("generator")
+generator.addEventListener("click", event => {
+    event.preventDefault();
+    randomPermutation();
+    accelerate();
+})
+
 function height1(x, y) {
-    const r = Math.sqrt((x - 10000) ** 2 + (y - 15000) ** 2)/500
-    const theta = Math.atan((y - 15000) / (x - 10000))
-    let h = -1000 * (Math.cos(5 * r + 2 * theta) * (1 - Math.exp(0-r ** 2)) + 1) / r ** 1.4
-    h += 300 * Math.exp(0 - (x/250)**2 - (y/250)**2)
-    for (const island of Islands) {
-        h += island[0] * Math.exp(0 - (x/200 - island[1])**2 - (y/200 - island[2])**2)
-    }
-    return h
+    return 2000 * (0.9 * noise(x / 1000, y / 1000) + 0.1 * noise(x / 100, y / 100)) ** 4;
+    //pyramid
+    //if (1250 < x && x < 2250 && -500 < y && y < 500) {
+    //    return 500 - 0.3 * (Math.abs(x - 1750 - y) + Math.abs(x - 1750 + y))
+    //}
+    
+    //whirlpool
+    //const r = Math.sqrt((x - 10000) ** 2 + (y - 15000) ** 2)/500
+    //const theta = Math.atan((y - 15000) / (x - 10000))
+    //h += -1000 * (Math.cos(5 * r + 2 * theta) * (1 - Math.exp(0-r ** 2)) + 1) / r ** 1.4
+    //return h
 }
-
 
 camera = new Camera(new Quaternion(0,-100,0,20))
-console.log(camera.position.toString(),camera.orientation.toString())
 const canvas = document.getElementById("canvas")
 let ctx = canvas.getContext("2d");
 
@@ -176,7 +265,9 @@ function draw_view() {
             polygon = [[x, y, height1(x,y)],[x + 20, y, height1(x + 20,y)],[x + 20, y + 20, height1(x + 20, y + 20)],[x, y + 20, height1(x, y + 20)]];
             ctx.beginPath();
             shade = Math.floor(256 * dist / render_distance)
-            ctx.strokeStyle = `rgb(${shade}, ${shade}, ${shade})`;
+            ctx.strokeStyle = `rgb(${135 / 256 * shade}, ${206 / 256 * shade}, ${250 / 256 * shade})`;
+            let h = height1(x,y);
+            ctx.fillStyle = `rgb(0, ${Math.floor(h * 256 / 10)}, ${256 - Math.floor(h * 256 / 10)})`
             const coord = camera.project(polygon[3]);
             ctx.moveTo(canvas.width / 2 + coord[0], canvas.height / 2 - coord[1]);
             for (const point of polygon) {
@@ -185,6 +276,7 @@ function draw_view() {
             }
             ctx.closePath();
             ctx.stroke();
+            ctx.fill();
         }
     }
 }
@@ -194,36 +286,42 @@ accelerate()
 let active = false
 
 document.addEventListener('keydown', event => {
-    console.log('event')
-    //yaw left
-    if (event.keyCode === 68) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 0, 1)))
-    }
-    //yaw right
-    if (event.keyCode === 65) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 0, 1)))
-    }
-    //pitch down
-    if (event.keyCode === 87) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 1, 0)))
-    }
-    //pitch up
-    if (event.keyCode === 83) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 1, 0)))
-    }
-    //roll right
-    if (event.keyCode === 81) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(Math.PI / 36, 1, 0, 0)))
-    }
-    //roll left
-    if (event.keyCode === 69) {
-        event.preventDefault()
-        camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 1, 0, 0)))
+    if (!(document.activeElement === seeder)) {
+        //yaw left
+        if (event.keyCode === 68) {
+            camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 0, 1)))
+        }
+        //yaw right
+        if (event.keyCode === 65) {
+            camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 0, 1)))
+        }
+        //pitch down
+        if (event.keyCode === 87) {
+            camera.rotate(new Quaternion(...toRect(Math.PI / 36, 0, 1, 0)))
+        }
+        //pitch up
+        if (event.keyCode === 83) {
+            camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 0, 1, 0)))
+        }
+        //roll right
+        if (event.keyCode === 81) {
+            camera.rotate(new Quaternion(...toRect(Math.PI / 36, 1, 0, 0)))
+        }
+        //roll left
+        if (event.keyCode === 69) {
+            camera.rotate(new Quaternion(...toRect(-Math.PI / 36, 1, 0, 0)))
+        }
+        //brake / restart
+        if (event.keyCode === 32) {
+            if (!(camera.speed === 0)) {
+                camera.speed = 0
+            }
+            else
+            {
+                camera.speed = 10
+            }
+            speedometer.value = camera.speed
+        }
     }
     //accelerate
     if (event.keyCode === 38) {
@@ -243,17 +341,6 @@ document.addEventListener('keydown', event => {
         }
         speedometer.value = camera.speed
     }
-    //brake / restart
-    if (event.keyCode === 32) {
-        if (!(camera.speed === 0)) {
-            camera.speed = 0
-        }
-        else
-        {
-            camera.speed = 10
-        }
-        speedometer.value = camera.speed
-    }
     accelerate()
 })
 
@@ -267,11 +354,11 @@ function accelerate() {
         setTimeout(accelerate, 40);
     }
     //floor collision
-    if (camera.position.k < 20 + height1(camera.position.i,camera.position.j)) {
-        camera.position.k = 20 + height1(camera.position.i,camera.position.j)
+    const ground = height1(20 * Math.round(camera.position.i / 20), 20 * Math.round(camera.position.j / 20))
+    if (camera.position.k < 20 + ground) {
+        camera.position.k = 20 + ground
     }
     draw_view()
 }
-
 </script>
 </body>
